@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- License: MIT. Made by vmware: https://github.com/vmware/clarity-assets -->
+<svg
+  width="36"
+  height="36"
+  viewBox="0 0 36 36"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>user-bold-red</title>
+
+  <!-- Head -->
+  <path
+    d="M18 17a7 7 0 1 0-7-7a7 7 0 0 0 7 7Z"
+    stroke="#c5161d"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Body -->
+  <path
+    d="M30.47 24.37a17.16 17.16 0 0 0-24.93 0A2 2 0 0 0 5 25.74V31a2 2 0 0 0 2 2h22a2 2 0 0 0 2-2v-5.26a2 2 0 0 0-.53-1.37Z"
+    stroke="#c5161d"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- transparent box -->
+  <rect x="0" y="0" width="36" height="36" fill="none"/>
+</svg>

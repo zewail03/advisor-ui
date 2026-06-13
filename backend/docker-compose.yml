@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: aiu-postgres
+    environment:
+      POSTGRES_DB: aiu
+      POSTGRES_USER: aiu
+      POSTGRES_PASSWORD: aiu_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - aiu_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiu -d aiu"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  aiu_pgdata:

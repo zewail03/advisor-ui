@@ -1,0 +1,60 @@
+# ===== Secrets / environment =====
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# ===== Node / Next.js (student app + admin-ui) =====
+node_modules/
+**/node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.next/
+**/.next/
+out/
+**/out/
+/build
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# ===== Python / FastAPI backend =====
+venv/
+**/venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Data / DB artifacts (live data lives in Postgres, not git) =====
+*.dump
+*.sqlite
+*.sqlite3
+backend/aiu.db
+
+# ===== Logs / coverage / misc =====
+/coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ===== OS / editor =====
+.DS_Store
+Thumbs.db
+*.pem
+.idea/
+
+# ===== Agent / local tooling (not part of the project) =====
+.agents/
+.claude/
