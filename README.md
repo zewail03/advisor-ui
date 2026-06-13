@@ -74,6 +74,24 @@ This makes every AI answer **defensible** — you can always trace it back to a 
 
 ---
 
+## 📸 Screenshots
+
+### 🎓 Student Portal
+
+| Academic Records | GPA Simulator |
+|:---:|:---:|
+| ![Academic Records](docs/screenshots/student-records.png) | ![GPA Simulator](docs/screenshots/student-gpa.png) |
+| *Cumulative GPA, remaining hours & GPA-trend chart* | *Simulate future grades — note the cohort-coherent Semester 1* |
+
+### 🛡️ Admin Portal
+
+| Dashboard | Business Rules Engine |
+|:---:|:---:|
+| ![Admin Dashboard](docs/screenshots/admin-dashboard.png) | ![Business Rules](docs/screenshots/admin-rules.png) |
+| *Live snapshot: 220 students, at-risk intervention queue, finances* | *32 admin-editable policies — changes take effect instantly* |
+
+---
+
 ## 🏗️ Architecture
 
 ```mermaid
