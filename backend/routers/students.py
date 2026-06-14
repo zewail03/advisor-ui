@@ -30,6 +30,7 @@ from models.student import Major, Program, Student
 from schemas.student import ProfileUpdate
 from services.course_recommender import recommend_courses
 from services.recovery_service import build_recovery_plan
+from services.requirement_tree import all_plan_codes, build_requirement_tree
 
 router = APIRouter()
 
@@ -416,6 +417,52 @@ async def get_requirements(
         "requirements": result,
         "program": {"code": program.code, "name": program.name} if program else None,
     }
+
+
+@router.get("/me/requirements-tree")
+async def get_requirements_tree(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Nested degree-audit hierarchy (Program -> semester blocks -> category
+    sub-requirements -> courses), styled after the AIU portal. Satisfied/% roll
+    up from the student's actual passed courses; anchored on the canonical plan."""
+    if not student.program_id:
+        return {"program": None, "overall": None, "semesters": []}
+
+    program = await db.get(Program, student.program_id)
+    major = await db.get(Major, student.major_id) if student.major_id else None
+    passed = await _passed_map(student.student_id, db)
+
+    # courses the student is currently sitting (enrolled, not yet passed)
+    inprog_rows = await db.execute(
+        select(Section.course_code)
+        .join(Enrollment, Enrollment.section_id == Section.section_id)
+        .where(Enrollment.student_id == student.student_id, Enrollment.status == "Enrolled")
+    )
+    in_progress = {code for (code,) in inprog_rows.all()} - set(passed.keys())
+
+    codes = list(all_plan_codes())
+    meta_rows = await db.execute(
+        select(Course.code, Course.name, Course.credits, Course.description).where(Course.code.in_(codes))
+    )
+    course_meta = {
+        code: {"title": name, "credits": int(cr or 0), "description": desc}
+        for code, name, cr, desc in meta_rows.all()
+    }
+
+    total_credits = float(getattr(program, "total_credits", 0) or 133)
+    # the portal's top node is the MAJOR ("Artificial Intelligence Science"),
+    # not the parent program ("Computer Science")
+    title = (major.name if major else None) or (program.name if program else "Program")
+    return build_requirement_tree(
+        title,
+        program.code if program else None,
+        total_credits,
+        course_meta,
+        passed,
+        in_progress,
+    )
 
 
 @router.get("/me/study-plan")

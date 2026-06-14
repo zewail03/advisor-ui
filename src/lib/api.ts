@@ -189,6 +189,59 @@ export async function getMyRequirements(token: string, signal?: AbortSignal) {
   return res.json();
 }
 
+export type ReqTreeCourse = {
+  code: string;
+  title: string;
+  description: string | null;
+  units: number;
+  taken: boolean;
+  in_progress: boolean;
+  grade: string | null;
+  term: string | null;
+  status: "Taken" | "In Progress" | "Not Started";
+};
+export type ReqSubrequirement = {
+  category: string;
+  is_basket: boolean;
+  basis: "units" | "courses";
+  required: number;
+  completed: number;
+  in_progress: number;
+  completion_percentage: number;
+  satisfied: boolean;
+  courses: ReqTreeCourse[];
+};
+export type ReqSemester = {
+  name: string;
+  slot: number;
+  required: number;
+  completed: number;
+  in_progress: number;
+  completion_percentage: number;
+  satisfied: boolean;
+  subrequirements: ReqSubrequirement[];
+};
+export type RequirementTree = {
+  program: { name: string; code: string | null; total_credits: number } | null;
+  overall: {
+    required: number;
+    completed: number;
+    in_progress: number;
+    completion_percentage: number;
+    satisfied: boolean;
+  } | null;
+  semesters: ReqSemester[];
+};
+
+export async function getMyRequirementsTree(
+  token: string,
+  signal?: AbortSignal,
+): Promise<RequirementTree> {
+  const res = await authed("/students/me/requirements-tree", token, { signal });
+  if (!res.ok) await throwApiError(res, "Failed to load requirements");
+  return res.json();
+}
+
 export async function getMyStudyPlan(token: string, signal?: AbortSignal) {
   const res = await authed("/students/me/study-plan", token, { signal });
   if (!res.ok) await throwApiError(res, "Failed to load study plan");
@@ -442,6 +495,34 @@ export async function getPaymentHistory(token: string) {
 export async function getScholarships(token: string) {
   const res = await authed("/financial/scholarships", token);
   if (!res.ok) await throwApiError(res, "Failed to load scholarships");
+  return res.json();
+}
+
+/* ── Online payment (Stripe test mode) ── */
+export async function getPaymentConfig(token: string, signal?: AbortSignal): Promise<{ enabled: boolean; mode: string }> {
+  const res = await authed("/financial/payment-config", token, { signal });
+  if (!res.ok) return { enabled: false, mode: "test" };
+  return res.json();
+}
+
+export async function startCheckout(
+  token: string,
+): Promise<{ url: string; session_id: string; amount: number; currency: string }> {
+  const res = await authed("/financial/checkout", token, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Could not start checkout");
+  return res.json();
+}
+
+export async function confirmCheckout(
+  token: string,
+  session_id: string,
+): Promise<{ paid: boolean; new_balance?: number; amount?: number; status?: string; already_recorded?: boolean }> {
+  const res = await authed("/financial/checkout/confirm", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not confirm payment");
   return res.json();
 }
 

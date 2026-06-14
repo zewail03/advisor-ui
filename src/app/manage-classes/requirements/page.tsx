@@ -1,15 +1,21 @@
 // src/app/manage-classes/requirements/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check, Diamond, ChevronRight, Loader2 } from "lucide-react";
 
-import { getMe, getMyRequirements, type MeResponse } from "@/lib/api";
+import {
+  getMe,
+  getMyRequirementsTree,
+  type MeResponse,
+  type RequirementTree,
+  type ReqSemester,
+  type ReqSubrequirement,
+  type ReqTreeCourse,
+} from "@/lib/api";
 import { normalizeErrorMessage, isAbortError } from "@/lib/utils";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import ErrorBanner from "@/components/ErrorBanner";
 import EmptyState from "@/components/EmptyState";
 import { CardSkeleton } from "@/components/LoadingSkeleton";
@@ -21,54 +27,245 @@ import ManageClassesSubNav from "@/components/layout/ManageClassesSubNav";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 
-/* ── Types ─────────────────────────────────────────────── */
+/* ── Small presentational pieces ───────────────────────── */
 
-type Course = {
-  code: string;
-  title: string;
-  units: number;
-  is_required: boolean;
-  taken: boolean;
-  grade?: string;
-  term?: string;
-};
-
-type Requirement = {
-  requirement_id: string;
-  category: string;
-  total_units_required: number;
-  units_completed: number;
-  units_in_progress: number;
-  completion_percentage: number;
-  status: string;
-  is_core: boolean;
-  courses: Course[];
-};
-
-/* ── Helpers ───────────────────────────────────────────── */
-
-function getStatusColor(status: string): string {
-  if (status === "Satisfied") return "bg-green-100 text-green-700 border-green-200";
-  if (status === "In Progress") return "bg-orange-100 text-orange-700 border-orange-200";
-  return "bg-zinc-100 text-zinc-600 border-zinc-200";
+function StatusPill({ satisfied, isDark }: { satisfied: boolean; isDark: boolean }) {
+  if (satisfied) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-green-600">
+        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-600">
+          <Check size={11} strokeWidth={3} className="text-white" />
+        </span>
+        Satisfied
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 text-[13px] font-semibold ${isDark ? "text-amber-400" : "text-amber-500"}`}>
+      <Diamond size={13} strokeWidth={3} className="fill-amber-500 text-amber-500" />
+      Not Satisfied
+    </span>
+  );
 }
 
-/* ── Page component ────────────────────────────────────── */
+function ProgressMeter({
+  label,
+  pct,
+  isDark,
+}: {
+  label: string;
+  pct: number;
+  isDark: boolean;
+}) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="flex items-center gap-4">
+      <span className={`whitespace-nowrap text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+        {label} {pct.toFixed(0)}%
+      </span>
+      <div className="w-40 shrink-0">
+        <div className={`h-2 rounded-sm ${isDark ? "bg-zinc-800" : "bg-zinc-200"}`}>
+          <div className="h-full rounded-sm bg-green-600 transition-all duration-500" style={{ width: `${clamped}%` }} />
+        </div>
+        <div className="mt-0.5 flex justify-between text-[9px] text-zinc-400">
+          <span>0%</span>
+          <span>100%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Course row + detail ───────────────────────────────── */
+
+function CourseRow({ course, isDark }: { course: ReqTreeCourse; isDark: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <tr
+        className={`cursor-pointer border-b ${isDark ? "border-zinc-800 hover:bg-zinc-900" : "border-zinc-100 hover:bg-white"}`}
+        onClick={() => course.description && setOpen((o) => !o)}
+      >
+        <td className={`py-2.5 pl-2 text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}`}>{course.code}</td>
+        <td className={`py-2.5 text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>{course.title}</td>
+        <td className={`py-2.5 text-center text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>{course.units.toFixed(2)}</td>
+        <td className={`py-2.5 text-center text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>{course.term || "—"}</td>
+        <td className="py-2.5 text-center">
+          {course.grade ? (
+            <span className="rounded-md bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">{course.grade}</span>
+          ) : (
+            <span className="text-zinc-400">{"—"}</span>
+          )}
+        </td>
+        <td className="py-2.5 pr-2 text-center">
+          {course.taken ? (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-green-600">
+              <Check size={13} strokeWidth={3} /> Taken
+            </span>
+          ) : course.in_progress ? (
+            <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">In Progress</span>
+          ) : (
+            <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${isDark ? "bg-zinc-800 text-zinc-400" : "bg-zinc-100 text-zinc-500"}`}>
+              Planned
+            </span>
+          )}
+        </td>
+      </tr>
+      <AnimatePresence>
+        {open && course.description && (
+          <tr>
+            <td colSpan={6} className="p-0">
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className={`mx-2 mb-2 rounded-lg px-4 py-3 text-xs leading-relaxed ${isDark ? "bg-zinc-950 text-zinc-400" : "bg-zinc-50 text-zinc-600"}`}>
+                  <span className="font-semibold">Course Detail · </span>
+                  {course.description}
+                </div>
+              </motion.div>
+            </td>
+          </tr>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+/* ── Sub-requirement (category) node ───────────────────── */
+
+function SubRequirement({ sub, isDark }: { sub: ReqSubrequirement; isDark: boolean }) {
+  const [open, setOpen] = useState(false);
+  const label = sub.basis === "courses" ? "Courses Completed" : "Units Completed";
+  return (
+    <div className={`border-t ${isDark ? "border-zinc-800" : "border-zinc-100"}`}>
+      <div
+        className={`flex cursor-pointer items-center justify-between gap-4 py-3 pl-10 pr-4 ${isDark ? "hover:bg-zinc-900" : "hover:bg-zinc-50"}`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <div className="min-w-0">
+          <div className={`truncate text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}`}>{sub.category}</div>
+          <div className="mt-1">
+            <StatusPill satisfied={sub.satisfied} isDark={isDark} />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <ProgressMeter label={label} pct={sub.completion_percentage} isDark={isDark} />
+          <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.2 }}>
+            <ChevronRight size={16} className="text-zinc-400" />
+          </motion.span>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className={`px-6 pb-4 pt-1 ${isDark ? "bg-zinc-950/40" : "bg-zinc-50/60"}`}>
+              <div className={`mb-2 text-xs ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                {sub.basis === "courses"
+                  ? `${sub.completed.toFixed(0)} of ${sub.required.toFixed(0)} courses completed`
+                  : `${sub.required.toFixed(2)} required, ${sub.completed.toFixed(2)} taken, ${Math.max(0, sub.required - sub.completed).toFixed(2)} needed`}
+                {sub.is_basket && <span className="ml-1 italic">· choose from the list below</span>}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className={`border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}`}>
+                      {["Course", "Description", "Units", "Term", "Grade", "Status"].map((h, i) => (
+                        <th
+                          key={h}
+                          className={`py-2 text-xs font-bold ${i === 0 ? "pl-2 text-left" : i === 1 ? "text-left" : "text-center"} ${isDark ? "text-zinc-400" : "text-zinc-600"}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sub.courses.map((c, i) => (
+                      <CourseRow key={`${c.code}-${i}`} course={c} isDark={isDark} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Semester block ────────────────────────────────────── */
+
+function SemesterBlock({
+  sem,
+  isDark,
+  defaultOpen,
+}: {
+  sem: ReqSemester;
+  isDark: boolean;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`overflow-hidden rounded-xl border shadow-sm ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"}`}>
+      <div
+        className={`flex cursor-pointer items-center justify-between gap-4 px-5 py-4 ${isDark ? "hover:bg-zinc-800/60" : "hover:bg-zinc-50"}`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <div>
+          <div className={`text-base font-extrabold ${isDark ? "text-white" : "text-zinc-900"}`}>{sem.name}</div>
+          <div className="mt-1">
+            <StatusPill satisfied={sem.satisfied} isDark={isDark} />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <ProgressMeter label="Units Completed" pct={sem.completion_percentage} isDark={isDark} />
+          <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.2 }}>
+            <ChevronRight size={18} className="text-zinc-400" />
+          </motion.span>
+        </div>
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            {sem.subrequirements.map((sub) => (
+              <SubRequirement key={sub.category} sub={sub} isDark={isDark} />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Page ──────────────────────────────────────────────── */
 
 export default function RequirementsPage() {
-  const { t } = useLanguage();
+  useLanguage();
   const { isDark } = useTheme();
   const { token, signOut } = useAuth();
 
   const [summary, setSummary] = useState<MeResponse | null>(null);
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [tree, setTree] = useState<RequirementTree | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [expandedReqs, setExpandedReqs] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState("");
-
-  /* ── Data fetching ─────────────────────────────────── */
 
   useEffect(() => {
     if (!token) return;
@@ -81,311 +278,113 @@ export default function RequirementsPage() {
       .catch((e) => {
         if (isAbortError(e) || controller.signal.aborted) return;
         const msg = normalizeErrorMessage(e, "Failed to load summary");
-        if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) {
-          signOut();
-        }
+        if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) signOut();
       });
 
-    loadRequirements(token);
+    setLoading(true);
+    setError(null);
+    getMyRequirementsTree(token, controller.signal)
+      .then((d) => {
+        if (!controller.signal.aborted) setTree(d);
+      })
+      .catch((e) => {
+        if (isAbortError(e) || controller.signal.aborted) return;
+        const msg = normalizeErrorMessage(e, "Failed to load requirements");
+        if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) {
+          signOut();
+          return;
+        }
+        setError(msg);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
 
     return () => controller.abort();
   }, [token, signOut]);
 
-  async function loadRequirements(tkn: string) {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await getMyRequirements(tkn);
-      const mapped: Requirement[] = (data.requirements || []).map((r: any) => {
-        const status = r.satisfied
-          ? "Satisfied"
-          : r.units_completed > 0
-            ? "In Progress"
-            : "Not Started";
-        return {
-          requirement_id: String(r.requirement_id),
-          category: r.category,
-          total_units_required: r.total_units_required,
-          units_completed: r.units_completed,
-          units_in_progress: r.units_in_progress ?? 0,
-          completion_percentage: r.completion_percentage,
-          status,
-          is_core: r.is_core,
-          courses: (r.courses || []).map((c: any) => ({
-            code: c.code,
-            title: c.title,
-            units: c.units,
-            is_required: c.is_required,
-            taken: c.taken,
-            grade: c.grade ?? undefined,
-            term: c.semester ?? undefined,
-          })),
-        };
-      });
-      setRequirements(mapped);
-    } catch (e) {
-      const msg = normalizeErrorMessage(e, "Failed to load requirements");
-      if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) {
-        signOut();
-        return;
-      }
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  /* ── Expand / collapse ─────────────────────────────── */
-
-  function toggleRequirement(reqId: string) {
-    setExpandedReqs((prev) => {
-      const next = new Set(prev);
-      if (next.has(reqId)) {
-        next.delete(reqId);
-      } else {
-        next.add(reqId);
-      }
-      return next;
-    });
-  }
-
-  /* ── Filtered list ─────────────────────────────────── */
-
-  const filteredRequirements = requirements.filter((req) => {
-    if (!searchQuery) return true;
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      req.category.toLowerCase().includes(searchLower) ||
-      req.courses.some(
-        (c) => c.code.toLowerCase().includes(searchLower) || c.title.toLowerCase().includes(searchLower)
-      )
-    );
-  });
-
-  /* ── Render ────────────────────────────────────────── */
+  const overall = tree?.overall;
+  const firstUnsatisfied = useMemo(
+    () => tree?.semesters.find((s) => !s.satisfied)?.slot ?? null,
+    [tree],
+  );
 
   return (
     <AppLayout activePath="/manage-classes/requirements" userName={summary?.full_name ?? "Loading..."}>
       <PageContainer>
         <ManageClassesSubNav activePath="/manage-classes/requirements" isDark={isDark} />
 
-        {error && (
-          <ErrorBanner message={error} isDark={isDark} onDismiss={() => setError(null)} />
+        {error && <ErrorBanner message={error} isDark={isDark} onDismiss={() => setError(null)} />}
+
+        {/* Program header */}
+        {tree?.program && overall && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mb-6 rounded-2xl border p-6 shadow-sm ${isDark ? "border-zinc-800 bg-zinc-900" : "border-zinc-200 bg-white"}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className={`text-xl font-extrabold ${isDark ? "text-white" : "text-zinc-900"}`}>{tree.program.name}</div>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <StatusPill satisfied={overall.satisfied} isDark={isDark} />
+                  <span className="text-xs text-zinc-400">·</span>
+                  <span className={`text-xs font-semibold ${isDark ? "text-zinc-300" : "text-zinc-600"}`}>
+                    {overall.completed.toFixed(0)} / {tree.program.total_credits.toFixed(0)} credits
+                  </span>
+                </div>
+              </div>
+              <ProgressMeter label="Units Completed" pct={overall.completion_percentage} isDark={isDark} />
+            </div>
+          </motion.div>
         )}
 
-        {/* Quick Search */}
-        <div className={`mb-8 rounded-2xl ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"} border shadow-sm px-6 py-6`}>
-          <div className={`text-xl font-extrabold mb-3 italic ${isDark ? "text-white" : "text-zinc-900"}`}>
-            Quick Search
-          </div>
-          <div className="text-sm text-zinc-500 mb-4">{t("req.find")}</div>
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2">
-                <Image
-                  src="/search.svg"
-                  alt="search"
-                  width={16}
-                  height={16}
-                  className={isDark ? "brightness-0 invert" : ""}
-                />
+        {/* legend */}
+        {!loading && tree?.semesters?.length ? (
+          <div className="mb-4 flex flex-wrap items-center gap-4 text-xs text-zinc-500">
+            <span className="inline-flex items-center gap-1">
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-green-600">
+                <Check size={9} strokeWidth={3} className="text-white" />
               </span>
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t("req.search")}
-                className={`h-12 w-full rounded-lg pl-11 text-sm ${
-                  isDark ? "bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500" : "bg-white"
-                }`}
-              />
-            </div>
-            <Button
-              className="bg-[#B8001F] hover:bg-[#A0001A] text-white rounded-lg h-12 px-8 text-sm font-bold"
-              type="button"
-            >
-              Search Courses
-            </Button>
+              Satisfied
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Diamond size={12} strokeWidth={3} className="fill-amber-500 text-amber-500" /> Not Satisfied
+            </span>
+            <span className="italic">Click a semester → requirement → course to drill in.</span>
           </div>
-        </div>
+        ) : null}
 
         {loading && (
           <div className="space-y-4">
             <CardSkeleton />
             <CardSkeleton />
             <CardSkeleton />
-            <CardSkeleton />
           </div>
         )}
 
-        {/* My Requirements List */}
-        {!loading && (
-          <div className="mb-8">
-            <div className={`text-2xl font-extrabold mb-6 ${isDark ? "text-white" : "text-zinc-900"}`}>
-              My Requirements
-            </div>
+        {!loading && (!tree || tree.semesters.length === 0) && (
+          <EmptyState title="No requirements" description="Your degree requirements will appear here." icon="📋" isDark={isDark} />
+        )}
 
-            {filteredRequirements.length === 0 && (
-              <EmptyState
-                title={t("req.none")}
-                description="Degree requirements will appear here."
-                icon="📋"
-                isDark={isDark}
-              />
-            )}
+        {!loading && tree && tree.semesters.length > 0 && (
+          <div className="space-y-3 pb-8">
+            {tree.semesters.map((sem, idx) => (
+              <motion.div
+                key={sem.slot}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(idx * 0.05, 0.4) }}
+              >
+                <SemesterBlock sem={sem} isDark={isDark} defaultOpen={sem.slot === firstUnsatisfied} />
+              </motion.div>
+            ))}
+          </div>
+        )}
 
-            {filteredRequirements.map((req, idx) => {
-              const isExpanded = expandedReqs.has(req.requirement_id);
-              const statusColor = getStatusColor(req.status);
-
-              return (
-                <motion.div
-                  key={req.requirement_id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.08 }}
-                  className={`mb-4 rounded-xl ${
-                    isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
-                  } border shadow-sm overflow-hidden hover:shadow-md transition-all duration-200`}
-                >
-                  {/* Requirement Header */}
-                  <div
-                    className={`px-6 py-5 cursor-pointer ${isDark ? "hover:bg-zinc-800" : "hover:bg-zinc-50"}`}
-                    onClick={() => toggleRequirement(req.requirement_id)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className={`font-extrabold text-base ${isDark ? "text-white" : "text-zinc-900"}`}>
-                            {req.category}
-                          </div>
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${statusColor}`}>
-                            {req.status}
-                          </span>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="mb-2">
-                          <div className="flex items-center justify-between mb-1 text-xs">
-                            <span className="text-zinc-500">
-                              {req.units_completed.toFixed(0)} / {req.total_units_required.toFixed(0)} Credits Completed
-                            </span>
-                            <span className="font-bold text-green-600">{req.completion_percentage.toFixed(0)}%</span>
-                          </div>
-                          <div className={`h-2 rounded-full overflow-hidden ${isDark ? "bg-zinc-800" : "bg-zinc-200"}`}>
-                            <div
-                              className="h-full bg-green-600 transition-all duration-500"
-                              style={{ width: `${Math.min(req.completion_percentage, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-zinc-500">
-                          Units: {req.total_units_required.toFixed(0)} required / {req.units_completed.toFixed(0)} satisfied / 0.00 needed
-                        </div>
-                      </div>
-
-                      <motion.div
-                        animate={{ rotate: isExpanded ? 180 : 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="ml-4"
-                      >
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" className="text-zinc-400">
-                          <path d="M5 7l5 5 5-5" stroke="currentColor" strokeWidth="2" fill="none" />
-                        </svg>
-                      </motion.div>
-                    </div>
-                  </div>
-
-                  {/* Expanded Course Table */}
-                  <AnimatePresence>
-                    {isExpanded && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.3 }}
-                        className="overflow-hidden"
-                      >
-                        <div className={`px-6 pb-6 ${isDark ? "bg-zinc-950/40" : "bg-zinc-50"}`}>
-                          {req.courses.length === 0 ? (
-                            <div className="py-8 text-center text-sm text-zinc-500">
-                              No courses in this category
-                            </div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full">
-                                <thead>
-                                  <tr className={`border-b ${isDark ? "border-zinc-800" : "border-zinc-200"}`}>
-                                    <th className={`text-left py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Course
-                                    </th>
-                                    <th className={`text-left py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Description
-                                    </th>
-                                    <th className={`text-center py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Units
-                                    </th>
-                                    <th className={`text-center py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Term
-                                    </th>
-                                    <th className={`text-center py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Grade
-                                    </th>
-                                    <th className={`text-center py-3 text-xs font-bold ${isDark ? "text-zinc-400" : "text-zinc-600"}`}>
-                                      Status
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {req.courses.map((course, cidx) => (
-                                    <tr
-                                      key={`${course.code}-${cidx}`}
-                                      className={`border-b ${isDark ? "border-zinc-800 hover:bg-zinc-900" : "border-zinc-100 hover:bg-white"}`}
-                                    >
-                                      <td className={`py-3 text-sm font-bold ${isDark ? "text-white" : "text-zinc-900"}`}>
-                                        {course.code}
-                                      </td>
-                                      <td className={`py-3 text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>
-                                        {course.title}
-                                      </td>
-                                      <td className={`py-3 text-sm text-center ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>
-                                        {course.units.toFixed(2)}
-                                      </td>
-                                      <td className={`py-3 text-sm text-center ${isDark ? "text-zinc-300" : "text-zinc-700"}`}>
-                                        {course.term || "\u2014"}
-                                      </td>
-                                      <td className="py-3 text-sm text-center">
-                                        {course.taken && course.grade ? (
-                                          <span className="px-2 py-1 rounded-md bg-green-100 text-green-700 text-xs font-bold">
-                                            {course.grade}
-                                          </span>
-                                        ) : (
-                                          <span className="text-zinc-400">\u2014</span>
-                                        )}
-                                      </td>
-                                      <td className="py-3 text-sm text-center">
-                                        {course.taken ? (
-                                          <span className="text-green-600 font-bold text-xs">{"\u2713"} Taken</span>
-                                        ) : (
-                                          <span className="px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
-                                            Requirements
-                                          </span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-            })}
+        {loading && (
+          <div className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
+            <Loader2 size={16} className="animate-spin" /> Building your degree audit…
           </div>
         )}
       </PageContainer>
