@@ -25,6 +25,7 @@ from routers import (
     audit,
     auth,
     capstone,
+    career,
     chat,
     courses,
     enrollments,
@@ -83,6 +84,7 @@ app.include_router(enrollments.router, prefix="/enrollments", tags=["enrollments
 app.include_router(schedule.router, prefix="/schedule", tags=["schedule"])
 app.include_router(gpa.router, prefix="/gpa", tags=["gpa"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(career.router, prefix="/career", tags=["career"])
 app.include_router(advisor.router, prefix="/advisor", tags=["advisor"])
 app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 app.include_router(audit.router, prefix="/audit", tags=["audit"])
