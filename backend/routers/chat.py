@@ -57,7 +57,7 @@ async def _load_history(db: AsyncSession, session_id: str, limit: int = 12):
     )
     msgs = list(res.scalars().all())
     msgs.reverse()
-    return [{"role": m.role, "content": m.content} for m in msgs]
+    return [{"role": m.role, "content": m.content, "intent": m.intent} for m in msgs]
 
 
 @router.post("/message")
@@ -93,6 +93,10 @@ async def chat_message(
 
     async def event_stream():
         yield f"event: session\ndata: {json.dumps({'session_id': session.id, 'intent': pre_state.get('intent')})}\n\n"
+
+        clar = pre_state.get("clarification")
+        if clar and clar.get("question"):
+            yield f"event: clarify\ndata: {json.dumps({'question': clar['question'], 'options': clar.get('options') or []})}\n\n"
 
         citations = [
             d.get("document") or d.get("source")

@@ -11,6 +11,8 @@ class ChatState(TypedDict, total=False):
     intent: str
     confidence: float
 
+    clarification: Optional[dict]  # {"question": str, "options": [str]} when the bot needs to ask back
+
     student_context: dict
     rag_docs: List[dict]
     tool_output: dict

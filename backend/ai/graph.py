@@ -1,5 +1,6 @@
 from langgraph.graph import END, StateGraph
 
+from ai.nodes.clarify_gate import clarify_gate
 from ai.nodes.context_loader import load_student_context
 from ai.nodes.course_recommender import course_recommender
 from ai.nodes.emergency_recovery import emergency_recovery
@@ -10,6 +11,14 @@ from ai.state import ChatState
 
 
 _RISK_STANDINGS = {"probation", "final chance", "dismissed", "dismissal_risk"}
+
+
+def _route_after_gate(state: ChatState) -> str:
+    # If the gate decided to ask a clarifying question, skip RAG/tools and go
+    # straight to done — the question is streamed back directly.
+    if state.get("clarification"):
+        return "done"
+    return _route_after_intent(state)
 
 
 def _route_after_intent(state: ChatState) -> str:
@@ -37,6 +46,7 @@ def build_graph():
     g = StateGraph(ChatState)
     g.add_node("intent", classify_intent)
     g.add_node("context", load_student_context)
+    g.add_node("clarify_gate", clarify_gate)
     g.add_node("rag", retrieve_docs)
     g.add_node("gpa_tool", gpa_simulator_tool)
     g.add_node("schedule_tool", schedule_suggester_tool)
@@ -47,9 +57,10 @@ def build_graph():
 
     g.set_entry_point("intent")
     g.add_edge("intent", "context")
+    g.add_edge("context", "clarify_gate")
     g.add_conditional_edges(
-        "context",
-        _route_after_intent,
+        "clarify_gate",
+        _route_after_gate,
         {
             "rag": "rag",
             "gpa_tool": "gpa_tool",

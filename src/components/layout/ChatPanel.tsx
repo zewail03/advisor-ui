@@ -16,7 +16,7 @@ type ChatPanelProps = {
   hidden?: boolean;
 };
 
-type ChatMsg = { role: "user" | "bot"; text: string; sources?: string[] };
+type ChatMsg = { role: "user" | "bot"; text: string; sources?: string[]; options?: string[] };
 type ChatSessionInfo = { id: string; title: string; created_at: string; last_message_at: string };
 
 function relativeTime(iso: string): string {
@@ -240,8 +240,10 @@ export default function ChatPanel({ isDark, hidden }: ChatPanelProps) {
     }
   }
 
-  async function sendMessage() {
-    const text = inputMsg.trim();
+  async function sendMessage(overrideText?: string) {
+    // overrideText is passed by quick-reply chips; a click event is not a string,
+    // so the Send button's onClick={sendMessage} still falls back to the input.
+    const text = (typeof overrideText === "string" ? overrideText : inputMsg).trim();
     if (!text || sending) return;
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_LS_KEY) : null;
     if (!token) {
@@ -287,6 +289,20 @@ export default function ChatPanel({ isDark, hidden }: ChatPanelProps) {
             const payload = JSON.parse(data);
             if (evt === "session") {
               setSessionId(payload.session_id);
+            } else if (evt === "clarify") {
+              // Bot is asking a clarifying question — attach quick-reply options
+              // to the current bot bubble so they render as clickable chips.
+              const opts = Array.isArray(payload.options)
+                ? payload.options.filter(Boolean).map(String)
+                : [];
+              if (opts.length) {
+                setMessages((prev) => {
+                  const next = [...prev];
+                  const last = next[next.length - 1];
+                  if (last && last.role === "bot") next[next.length - 1] = { ...last, options: opts };
+                  return next;
+                });
+              }
             } else if (evt === "citations") {
               // Backend emits the RAG source docs the answer is grounded on.
               const srcs = Array.isArray(payload)
@@ -691,6 +707,31 @@ export default function ChatPanel({ isDark, hidden }: ChatPanelProps) {
                       </motion.span>
                     )}
 
+                    {msg.role === "bot" &&
+                      idx === messages.length - 1 &&
+                      !sending &&
+                      msg.options &&
+                      msg.options.length > 0 && (
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                          {msg.options.map((opt, i) => (
+                            <motion.button
+                              key={i}
+                              type="button"
+                              onClick={() => sendMessage(opt)}
+                              whileHover={{ scale: 1.04 }}
+                              whileTap={{ scale: 0.96 }}
+                              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                isDark
+                                  ? "border-zinc-600 bg-zinc-900 text-zinc-100 hover:border-[#ff4d6d] hover:text-white"
+                                  : "border-[#B8001F]/30 bg-[#B8001F]/5 text-[#B8001F] hover:bg-[#B8001F]/10"
+                              }`}
+                            >
+                              {opt}
+                            </motion.button>
+                          ))}
+                        </div>
+                      )}
+
                     {msg.role === "bot" && msg.sources && msg.sources.length > 0 && (
                       <div
                         className={`mt-2 border-t pt-2 ${
@@ -748,7 +789,7 @@ export default function ChatPanel({ isDark, hidden }: ChatPanelProps) {
                 />
                 <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                   <Button
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     disabled={sending}
                     className="h-11 rounded-xl bg-gradient-to-r from-[#B8001F] to-[#A0001A] hover:from-[#A0001A] hover:to-[#800016] shadow-lg"
                     type="button"

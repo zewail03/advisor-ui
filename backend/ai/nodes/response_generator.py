@@ -34,6 +34,7 @@ Advisor voice — HOW to answer (this is what makes you valuable):
 5. ONE NEXT ACTION: close with a single concrete step, with its deadline if a registration window applies ("Register for Summer 2026 before June 14").
 
 Behavioral rules:
+- ACCURACY OVER GUESSING: if a detail essential to a correct answer is missing and you cannot reasonably assume it, ask ONE short clarifying question instead of guessing. For minor gaps, proceed with the most reasonable assumption and state it in one short clause (e.g. "assuming you mean Fall 2026 —").
 - Respond to what the student ACTUALLY asked. Do NOT volunteer information they didn't request.
 - For greetings like "hello" or "hi", respond warmly with a short welcome and ask how you can help. Do NOT mention GPA, standing, or any academic data unless the student asked.
 - Only surface CGPA, standing, or academic data when the student's question is specifically about their grades, GPA, or academic performance.
@@ -108,6 +109,16 @@ def _build_system(state: ChatState) -> str:
 
 
 async def generate_stream(state: ChatState):
+    # Clarification path: the gate already produced ONE focused question — stream
+    # it back verbatim (no LLM call, no tools, nothing invented). Options, if any,
+    # are sent separately as quick-reply chips by the router.
+    clar = state.get("clarification")
+    if clar and clar.get("question"):
+        text = clar["question"]
+        for i in range(0, len(text), 6):
+            yield text[i : i + 6]
+        return
+
     system = _build_system(state)
     messages = [{"role": "system", "content": system}]
     for h in state.get("history", [])[-6:]:
