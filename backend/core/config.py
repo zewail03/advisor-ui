@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     llm_cache_ttl_seconds: int = 3600
 
+    # Stripe (test mode). secret key only — hosted Checkout needs no publishable key.
+    stripe_secret_key: str = ""
+    stripe_currency: str = ""  # override; empty = use the account's currency (EGP)
+    frontend_base_url: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

@@ -11,6 +11,9 @@ import {
   getInvoices,
   getPaymentHistory,
   getScholarships,
+  getPaymentConfig,
+  startCheckout,
+  confirmCheckout,
   type MeResponse,
 } from "@/lib/api";
 import { normalizeErrorMessage, isAbortError, formatDate } from "@/lib/utils";
@@ -225,6 +228,12 @@ export default function FinancialAccountPage() {
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [showAllTx, setShowAllTx] = useState(false);
 
+  // Online payment (Stripe test mode)
+  const [paymentEnabled, setPaymentEnabled] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [payNote, setPayNote] = useState<{ kind: "success" | "info"; text: string } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const defaultMethod = methods.find((m) => m.isDefault) ?? null;
 
@@ -273,7 +282,61 @@ export default function FinancialAccountPage() {
     })();
 
     return () => controller.abort();
-  }, [token, signOut]);
+  }, [token, signOut, reloadKey]);
+
+  // Gateway availability + handle the return from Stripe Checkout.
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    getPaymentConfig(token)
+      .then((c) => active && setPaymentEnabled(!!c.enabled))
+      .catch(() => {});
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("canceled")) {
+        setPayNote({ kind: "info", text: "Payment canceled — no charge was made." });
+        window.history.replaceState({}, "", "/financial-account");
+      } else {
+        const sid = params.get("session_id");
+        if (params.get("paid") && sid) {
+          window.history.replaceState({}, "", "/financial-account");
+          confirmCheckout(token, sid)
+            .then((r) => {
+              if (r.paid) {
+                setPayNote({
+                  kind: "success",
+                  text: r.already_recorded
+                    ? "Payment already recorded — your balance is up to date."
+                    : `✅ Payment successful! ${r.amount ?? ""} EGP paid — new balance ${r.new_balance ?? 0} EGP.`,
+                });
+                setReloadKey((k) => k + 1);
+              } else {
+                setPayNote({ kind: "info", text: "Payment was not completed." });
+              }
+            })
+            .catch((e) => setErr(normalizeErrorMessage(e, "Could not confirm payment")));
+        }
+      }
+    }
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  async function beginStripeCheckout() {
+    if (!token) return;
+    setErr(null);
+    setPayNote(null);
+    setStarting(true);
+    try {
+      const { url } = await startCheckout(token);
+      window.location.href = url; // redirect to Stripe's hosted checkout
+    } catch (e) {
+      setErr(normalizeErrorMessage(e, "Could not start payment"));
+      setStarting(false);
+    }
+  }
 
   async function viewAllTransactions() {
     if (!token || !summary) return;
@@ -782,6 +845,21 @@ export default function FinancialAccountPage() {
           <ErrorBanner message={err} isDark={isDark} onDismiss={() => setErr(null)} />
         )}
 
+        {payNote && (
+          <div
+            className={`mb-4 flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm ${
+              payNote.kind === "success"
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+            }`}
+          >
+            <span>{payNote.text}</span>
+            <button onClick={() => setPayNote(null)} className="opacity-60 hover:opacity-100" type="button">
+              ✕
+            </button>
+          </div>
+        )}
+
         {loadingFinancial && !financial && (
           <FinancialSkeleton isDark={isDark} />
         )}
@@ -828,19 +906,24 @@ export default function FinancialAccountPage() {
                 )}
               </div>
 
-              <div className="flex md:justify-end">
+              <div className="flex flex-col items-stretch gap-1 md:items-end">
                 <button
-                  onClick={openAddMethod}
-                  disabled={currentBalance === 0}
+                  onClick={paymentEnabled ? beginStripeCheckout : openAddMethod}
+                  disabled={currentBalance === 0 || starting}
                   className={`h-[52px] rounded-full ${
-                    currentBalance === 0
+                    currentBalance === 0 || starting
                       ? "bg-white/20 text-white/40 cursor-not-allowed"
                       : "bg-white text-[#1E3A8A] hover:bg-white/90"
                   } px-6 font-bold text-sm transition-colors shadow-lg`}
                   type="button"
                 >
-                  Make Payment
+                  {starting ? "Redirecting to checkout…" : "Make Payment"}
                 </button>
+                {paymentEnabled && (
+                  <span className="text-center text-[10px] text-white/70 md:text-right">
+                    🔒 Secured by Stripe
+                  </span>
+                )}
               </div>
             </div>
           </div>
