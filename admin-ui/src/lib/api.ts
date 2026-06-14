@@ -445,6 +445,16 @@ export type Offering = {
 export const getCourseOptions = () =>
   authedGet<{ courses: { course_id: number; code: string; name: string }[] }>("/admin/course-options");
 
+export type Room = { room_id: number; name: string; room_type: string; capacity: number | null };
+
+export const getRooms = () => authedGet<{ rooms: Room[] }>("/admin/rooms");
+
+export const createRoom = (body: { name: string; room_type: string; capacity?: number }) =>
+  authed<{ created: boolean; room_id: number; name: string }>("/admin/rooms", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 export const getOfferings = (semesterId: number) =>
   authedGet<{ semester: { semester_id: number; code: string }; offerings: Offering[] }>(
     `/admin/offerings?semester_id=${semesterId}`,

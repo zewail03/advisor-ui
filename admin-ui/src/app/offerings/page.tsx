@@ -7,11 +7,13 @@ import {
   getSemesters,
   getCourseOptions,
   getOfferings,
+  getRooms,
   createSemester,
   createOffering,
   deleteOffering,
   type Offering,
   type Meeting,
+  type Room,
 } from "@/lib/api";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -25,6 +27,7 @@ export default function OfferingsPage() {
   const [sem, setSem] = useState<number | null>(null);
   const [offerings, setOfferings] = useState<Offering[]>([]);
   const [courses, setCourses] = useState<{ course_id: number; code: string; name: string }[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -40,15 +43,19 @@ export default function OfferingsPage() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    Promise.all([getSemesters(), getCourseOptions()])
-      .then(([s, c]) => {
+    Promise.all([getSemesters(), getCourseOptions(), getRooms()])
+      .then(([s, c, r]) => {
         setSemesters(s.semesters);
         setCourses(c.courses);
+        setRooms(r.rooms);
         if (s.semesters.length) setSem(s.semesters[0].semester_id);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : "Failed"))
       .finally(() => setLoading(false));
   }, []);
+
+  const labRooms = rooms.filter((r) => r.room_type === "lab");
+  const lectureRooms = rooms.filter((r) => r.room_type !== "lab");
 
   function loadOfferings(id: number) {
     getOfferings(id).then((d) => setOfferings(d.offerings)).catch((e) => setErr(e instanceof Error ? e.message : "Failed"));
@@ -238,7 +245,23 @@ export default function OfferingsPage() {
                           <input type="time" value={m.start_time} onChange={(e) => upMeeting(i, { start_time: e.target.value })} className="oi !py-1" />
                           <span className="text-xs text-zinc-400">to</span>
                           <input type="time" value={m.end_time} onChange={(e) => upMeeting(i, { end_time: e.target.value })} className="oi !py-1" />
-                          <input placeholder="Room" value={m.location ?? ""} onChange={(e) => upMeeting(i, { location: e.target.value })} className="oi !py-1 w-24" />
+                          <select value={m.location ?? ""} onChange={(e) => upMeeting(i, { location: e.target.value })} className="oi !py-1 w-28" title="Hall / room">
+                            <option value="">Room…</option>
+                            {labRooms.length > 0 && (
+                              <optgroup label="Lab halls">
+                                {labRooms.map((r) => <option key={r.room_id} value={r.name}>{r.name}</option>)}
+                              </optgroup>
+                            )}
+                            {lectureRooms.length > 0 && (
+                              <optgroup label="Lecture halls">
+                                {lectureRooms.map((r) => <option key={r.room_id} value={r.name}>{r.name}</option>)}
+                              </optgroup>
+                            )}
+                            {/* keep a custom value (e.g. from an older offering) selectable */}
+                            {m.location && !rooms.some((r) => r.name === m.location) && (
+                              <option value={m.location}>{m.location}</option>
+                            )}
+                          </select>
                         </div>
                       </div>
                     ))}

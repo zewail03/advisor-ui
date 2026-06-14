@@ -16,6 +16,7 @@ from core.security import get_current_staff, require_role
 from models.academic import Semester
 from models.course import Course, Section, SectionMeeting
 from models.enrollment import Enrollment
+from models.room import Room
 from models.staff import Staff, StaffRole
 from services.audit_service import log_action
 
@@ -53,6 +54,12 @@ class SemesterIn(BaseModel):
     year_end: Optional[int] = None
 
 
+class RoomIn(BaseModel):
+    name: str
+    room_type: str = "lecture"  # lab | lecture
+    capacity: Optional[int] = None
+
+
 async def _meetings_for(section_id: int, db: AsyncSession) -> list:
     rows = (
         await db.execute(
@@ -80,6 +87,46 @@ async def course_options(
 ):
     rows = (await db.execute(select(Course.course_id, Course.code, Course.name).order_by(Course.code))).all()
     return {"courses": [{"course_id": cid, "code": code, "name": name} for (cid, code, name) in rows]}
+
+
+@router.get("/rooms")
+async def list_rooms(
+    staff: Staff = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await db.execute(
+            select(Room).where(Room.is_active == True).order_by(Room.room_type, Room.name)  # noqa: E712
+        )
+    ).scalars().all()
+    return {
+        "rooms": [
+            {"room_id": r.room_id, "name": r.name, "room_type": r.room_type, "capacity": r.capacity}
+            for r in rows
+        ]
+    }
+
+
+@router.post("/rooms")
+async def create_room(
+    body: RoomIn,
+    staff: Staff = Depends(require_role(StaffRole.registrar)),
+    db: AsyncSession = Depends(get_db),
+):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Room name is required")
+    exists = (await db.execute(select(Room).where(Room.name == name))).scalar_one_or_none()
+    if exists:
+        raise HTTPException(status_code=400, detail="A room with that name already exists")
+    room = Room(name=name, room_type=body.room_type, capacity=body.capacity, is_active=True)
+    db.add(room)
+    await db.flush()
+    await log_action(db, action="room.create", entity_type="room", entity_id=str(room.room_id),
+                     actor_id=str(staff.staff_id), actor_role=staff.role,
+                     after={"name": name, "room_type": body.room_type})
+    await db.commit()
+    return {"created": True, "room_id": room.room_id, "name": room.name}
 
 
 @router.get("/offerings")
