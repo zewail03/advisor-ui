@@ -1,0 +1,55 @@
+{
+  "model": "logistic_regression",
+  "trained_at": "2026-06-15T02:13:20+00:00",
+  "feature_names": [
+    "first_year_gpa",
+    "gpa_trend",
+    "failed_courses",
+    "low_grade_rate"
+  ],
+  "scaler_mean": [
+    2.795230303030304,
+    -0.04552727272727273,
+    0.2545454545454545,
+    0.1415575757575758
+  ],
+  "scaler_scale": [
+    0.579690341833517,
+    0.43883812938446093,
+    0.8359682860052828,
+    0.20437874382492988
+  ],
+  "coef": [
+    -0.8026528361437333,
+    -0.1961597070609485,
+    0.7150234548945934,
+    0.8625238578489879
+  ],
+  "intercept": -4.238633387681413,
+  "bands": {
+    "moderate": 0.3,
+    "high": 0.6
+  },
+  "train_min_main_semesters": 3,
+  "metrics": {
+    "n_train": 165,
+    "n_at_risk": 13,
+    "base_rate": 0.079,
+    "holdout_auc": 1.0,
+    "holdout_accuracy": 0.952,
+    "holdout_precision": 0.6,
+    "holdout_recall": 1.0,
+    "cv_auc_mean": 0.982,
+    "cv_auc_std": 0.015,
+    "confusion_matrix": [
+      [
+        37,
+        2
+      ],
+      [
+        0,
+        3
+      ]
+    ]
+  }
+}

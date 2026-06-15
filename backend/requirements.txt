@@ -23,3 +23,7 @@ httpx==0.27.0
 python-dotenv==1.0.1
 pandas==2.2.2
 openpyxl==3.1.2
+# training-only: scripts/train_risk_model.py fits the early-warning model and
+# writes ai/artifacts/risk_model.json. The running backend scores students in
+# pure Python (services/risk_model.py) and does NOT import scikit-learn.
+scikit-learn==1.8.0
