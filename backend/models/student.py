@@ -55,6 +55,14 @@ class Student(Base):
     math0_passed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Two-factor auth (server-generated login OTP). totp_enabled = "2FA is on";
+    # otp_hash/otp_expires_at hold the current single-use code (hashed) during a
+    # login / enable / disable step. (totp_secret is legacy/unused now.)
+    totp_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    otp_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    otp_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     __table_args__ = (
         CheckConstraint("cgpa >= 0 AND cgpa <= 4", name="ck_students_cgpa_range"),
     )

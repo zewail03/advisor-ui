@@ -15,11 +15,23 @@ class Settings(BaseSettings):
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_dim: int = 384
+    # "local" = sentence-transformers (PyTorch, needs ~1GB RAM); "hf" = HuggingFace
+    # Inference API (no torch — used in lightweight free-tier deploys). Same model
+    # either way, so stored 384-dim vectors stay compatible.
+    embedding_backend: str = "local"
+    hf_api_token: str = ""
+
+    # Extra CORS origins (comma-separated) — your deployed frontend URLs.
+    cors_origins: str = ""
 
     celery_broker_url: str
     celery_result_backend: str
 
     llm_cache_ttl_seconds: int = 3600
+
+    # Two-factor: demo delivery shows the login OTP on screen (no email wired).
+    # Set false once you deliver it via email/SMS instead.
+    otp_demo_show_code: bool = True
 
     # Stripe (test mode). secret key only — hosted Checkout needs no publishable key.
     stripe_secret_key: str = ""

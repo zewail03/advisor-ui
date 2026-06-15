@@ -47,6 +47,17 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_twofactor_challenge(data: dict) -> str:
+    """Short-lived token issued after a correct password when 2FA is on. It is
+    NOT an access token — it only authorizes the /auth/2fa/verify step."""
+    to_encode = data.copy()
+    to_encode.update({
+        "exp": datetime.utcnow() + timedelta(minutes=5),
+        "type": "2fa_challenge",
+    })
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+
 def create_admin_token(data: dict) -> str:
     """Access token for staff/admin principals. Carries scope='admin' so a
     student token can never satisfy an admin dependency, and vice versa."""

@@ -138,13 +138,59 @@ export type StandingInfo = {
 };
 
 /** ========================= Auth ========================= */
-export async function login(student_number: string, password: string): Promise<TokenPair> {
+export type TwoFAChallenge = { twofa_required: true; challenge_token: string; delivery?: string; demo_code?: string };
+export type LoginResult = TokenPair | TwoFAChallenge;
+
+export async function login(student_number: string, password: string): Promise<LoginResult> {
   const res = await apiFetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ student_code: student_number, password }),
   });
   if (!res.ok) await throwApiError(res, "Login failed");
+  return res.json();
+}
+
+export async function verifyTwoFactor(challenge_token: string, code: string): Promise<TokenPair> {
+  const res = await apiFetch(`${API_URL}/auth/2fa/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ challenge_token, code }),
+  });
+  if (!res.ok) await throwApiError(res, "Verification failed");
+  return res.json();
+}
+
+/* ── Two-factor management (authenticated) ── */
+export async function get2faStatus(token: string, signal?: AbortSignal): Promise<{ enabled: boolean }> {
+  const res = await authed("/auth/2fa/status", token, { signal });
+  if (!res.ok) return { enabled: false };
+  return res.json();
+}
+
+export async function sendOtp(token: string): Promise<{ sent: boolean; delivery: string; demo_code?: string }> {
+  const res = await authed("/auth/2fa/send", token, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Could not send code");
+  return res.json();
+}
+
+export async function enable2fa(token: string, code: string): Promise<{ enabled: boolean }> {
+  const res = await authed("/auth/2fa/enable", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not enable 2FA");
+  return res.json();
+}
+
+export async function disable2fa(token: string, code: string): Promise<{ enabled: boolean }> {
+  const res = await authed("/auth/2fa/disable", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not disable 2FA");
   return res.json();
 }
 

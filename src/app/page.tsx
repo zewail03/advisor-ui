@@ -40,6 +40,13 @@ const copy = {
     required: "Please enter Student ID and Password",
     backendDown:
       "Cannot reach the backend server. Make sure FastAPI is running on http://127.0.0.1:8000 (or set NEXT_PUBLIC_API_URL).",
+    twoFATitle: "Two-Factor Authentication",
+    twoFASub: "Enter the 6-digit code we just sent you.",
+    twoFAPlaceholder: "123456",
+    verify: "Verify",
+    twoFABack: "← Use a different account",
+    twoFAInvalid: "Invalid or expired code",
+    twoFADemo: "Demo code (would be emailed):",
   },
   ar: {
     title: "سنقوم بالاتصال بحسابك الجامعي",
@@ -58,6 +65,13 @@ const copy = {
     required: "من فضلك أدخل رقم الطالب وكلمة المرور",
     backendDown:
       "لا يمكن الاتصال بسيرفر الباك اند. تأكد أن FastAPI شغال على http://127.0.0.1:8000 (أو اضبط NEXT_PUBLIC_API_URL).",
+    twoFATitle: "المصادقة الثنائية",
+    twoFASub: "أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة.",
+    twoFAPlaceholder: "123456",
+    verify: "تحقق",
+    twoFABack: "← استخدم حسابًا آخر",
+    twoFAInvalid: "رمز غير صحيح أو منتهي الصلاحية",
+    twoFADemo: "رمز العرض التجريبي (يُرسَل بالبريد عادةً):",
   },
 };
 
@@ -80,7 +94,7 @@ function extractFastApiError(err: unknown, fallback: string) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, completeTwoFactor } = useAuth();
 
   const { lang, setLanguage } = useLanguage();
   const t = useMemo(() => copy[lang], [lang]);
@@ -93,6 +107,38 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
   const [success, setSuccess] = useState(false);
+
+  // Two-factor second step
+  const [twoFAChallenge, setTwoFAChallenge] = useState<string | null>(null);
+  const [demoCode, setDemoCode] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+
+  async function finishLogin() {
+    setSuccess(true);
+    await new Promise((r) => setTimeout(r, 600));
+    router.push("/dashboard");
+  }
+
+  async function onVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const c = code.trim();
+    if (!c || !twoFAChallenge) {
+      setErr(t.twoFAInvalid);
+      setShakeKey((k) => k + 1);
+      return;
+    }
+    setLoading(true);
+    try {
+      await completeTwoFactor(twoFAChallenge, c);
+      await finishLogin();
+    } catch (e: unknown) {
+      setErr(extractFastApiError(e, t.twoFAInvalid));
+      setShakeKey((k) => k + 1);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -109,13 +155,17 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await signIn(sid, pass);
-
+      const r = await signIn(sid, pass);
       localStorage.setItem("advisor_student_id", sid);
 
-      setSuccess(true);
-      await new Promise((r) => setTimeout(r, 600));
-      router.push("/dashboard");
+      if (r.twofaRequired) {
+        setTwoFAChallenge(r.challengeToken);
+        setDemoCode(r.demoCode ?? null);
+        setCode("");
+        return; // show the code step (finally clears loading)
+      }
+
+      await finishLogin();
     } catch (e: unknown) {
       // If backend is down / CORS / wrong URL → show backendDown
       const msg = extractFastApiError(e, t.invalid);
@@ -202,6 +252,7 @@ export default function LoginPage() {
                 </div>
               </motion.div>
 
+              {!twoFAChallenge ? (
               <form onSubmit={onSubmit} className="space-y-4">
                 <motion.div
                   initial={{ opacity: 0, x: -10 }}
@@ -324,6 +375,78 @@ export default function LoginPage() {
                   <p className="mt-1">{t.terms}</p>
                 </motion.div>
               </form>
+              ) : (
+              <form onSubmit={onVerify} className="space-y-4">
+                <div className="space-y-1 pb-1 text-center">
+                  <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-full bg-red-50 dark:bg-red-950/40 text-2xl">🔐</div>
+                  <p className="text-base font-semibold text-zinc-800 dark:text-zinc-100">{t.twoFATitle}</p>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">{t.twoFASub}</p>
+                </div>
+
+                {demoCode && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                    {t.twoFADemo} <span className="font-mono text-base font-bold tracking-widest">{demoCode}</span>
+                  </div>
+                )}
+
+                <Input
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(null); }}
+                  placeholder={t.twoFAPlaceholder}
+                  inputMode="numeric"
+                  autoFocus
+                  maxLength={6}
+                  className="h-12 text-center text-2xl font-bold tracking-[0.5em]"
+                />
+
+                <AnimatePresence mode="wait">
+                  {err && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -5 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -5 }}
+                      className="overflow-hidden rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-sm text-red-700 dark:text-red-300"
+                    >
+                      {err}
+                    </motion.div>
+                  )}
+                  {success && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, height: "auto", scale: 1 }}
+                      className="overflow-hidden rounded-md border border-green-200 bg-green-50 dark:bg-green-950/40 px-3 py-2 text-center text-sm font-medium text-green-700 dark:text-green-300"
+                    >
+                      Login successful! Redirecting...
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <Button
+                  type="submit"
+                  disabled={loading || success || code.length < 6}
+                  className="h-12 w-full rounded-md bg-red-600 text-base font-semibold hover:bg-red-700 hover:shadow-lg transition-all duration-200 disabled:opacity-60"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <motion.span
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="inline-block h-4 w-4 rounded-full border-2 border-white/30 border-t-white"
+                      />
+                      {t.loading}
+                    </span>
+                  ) : success ? "✓" : t.verify}
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => { setTwoFAChallenge(null); setDemoCode(null); setCode(""); setErr(null); }}
+                  className="block w-full pt-1 text-center text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  {t.twoFABack}
+                </button>
+              </form>
+              )}
             </CardContent>
           </Card>
         </motion.div>
