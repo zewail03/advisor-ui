@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.config import settings
 from core.database import Base, engine
 from core.security import decode_token
 from core.websocket import ws_manager
@@ -59,20 +58,14 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="AIU Academic Advisor API", lifespan=lifespan)
 
-# Local dev origins + any deployed frontend URLs from CORS_ORIGINS (comma-sep).
-_allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
-_allowed_origins += [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins,
-    # also allow any Vercel deployment (preview + prod) without hardcoding URLs
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
