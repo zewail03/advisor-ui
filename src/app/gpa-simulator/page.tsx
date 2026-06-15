@@ -27,6 +27,9 @@ function normalizeGrade(rawGrade: string, rawStatus: string): string {
   const g = (rawGrade || "").trim();
   // Real letter grade wins, regardless of enrollment status
   if (g in GRADE_POINTS && g !== "Dropped") return g;
+  // Pass/fail grades (e.g. 0-credit P/S courses) are POSTED, non-GPA results —
+  // keep them as a read-only "P", not mistaken for "not graded yet".
+  if (g === "P" || g === "S" || g.toLowerCase() === "pass") return "P";
   const s = (rawStatus || "").trim().toLowerCase();
   if (s === "dropped" || g.toLowerCase() === "dropped" || g === "W" || g === "WD") {
     return "Dropped";
@@ -42,6 +45,10 @@ type CourseRow = {
   grade: string;
   originalGrade: string; // the real grade from transcript (empty if none yet)
   isUserAdded: boolean; // true = course added in new semester; user picks the code
+  // false = a later retake superseded this attempt: it still shows in its term
+  // (historical), but is excluded from the CUMULATIVE GPA (latest-counts policy),
+  // so the simulator's cumulative matches the official record.
+  countsInGpa: boolean;
 };
 
 type SemesterBlock = {
@@ -69,6 +76,10 @@ function cumulativeGpa(semesters: SemesterBlock[]): { gpa: number | null; totalP
   let totalCr = 0;
   for (const sem of semesters) {
     for (const c of sem.courses) {
+      // Superseded retakes count toward their term GPA but not the cumulative —
+      // skip them here so this matches the official CGPA (unless the user edits
+      // the grade, which makes it a live simulation again).
+      if (c.countsInGpa === false && c.grade === c.originalGrade) continue;
       const pts = GRADE_POINTS[c.grade];
       if (pts == null) continue;
       totalPts += pts * c.credits;
@@ -141,6 +152,7 @@ export default function GpaSimulatorPage() {
             grade: normalized || NOT_GRADED,
             originalGrade: normalized || NOT_GRADED,
             isUserAdded: false,
+            countsInGpa: c.counts_in_gpa !== false,
           };
         });
         return { id: termName, name: termName, courses, isNew: false };
@@ -190,7 +202,7 @@ export default function GpaSimulatorPage() {
         if (s.id !== semId) return s;
         return {
           ...s,
-          courses: [...s.courses, { code: "", title: "New Course", credits: 3, grade: "A", originalGrade: "", isUserAdded: true }],
+          courses: [...s.courses, { code: "", title: "New Course", credits: 3, grade: "A", originalGrade: "", isUserAdded: true, countsInGpa: true }],
         };
       }),
     );
@@ -428,6 +440,9 @@ export default function GpaSimulatorPage() {
                     <div className={`divide-y ${isDark ? "divide-zinc-700/50" : "divide-zinc-100"}`}>
                       {sem.courses.map((course, cIdx) => {
                         const pts = GRADE_POINTS[course.grade];
+                        // A genuine retake: a real letter grade that no longer counts.
+                        // (Pass/fail "P" grades also don't count, but aren't retakes.)
+                        const isRepeated = !course.isUserAdded && course.countsInGpa === false && pts != null;
                         const isModified = !course.isUserAdded && course.grade !== course.originalGrade;
                         // Posted grades are history: the whole row is read-only.
                         // In-progress courses (no grade yet) allow ONLY a
@@ -468,7 +483,19 @@ export default function GpaSimulatorPage() {
                                   placeholder={t("sim.courseName")}
                                 />
                               ) : (
-                                <div className={staticCell}>{course.title}</div>
+                                <div className={`${staticCell} flex items-center gap-2`}>
+                                  <span className={isRepeated ? "line-through opacity-60" : ""}>
+                                    {course.title}
+                                  </span>
+                                  {isRepeated && (
+                                    <span
+                                      className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                                      title="Replaced by a later attempt — counts toward this term's GPA but not your cumulative GPA"
+                                    >
+                                      ↻ repeated
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
 

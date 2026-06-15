@@ -199,25 +199,33 @@ async def get_gpa(
 ):
     transcript = await _transcript_rows(student.student_id, db)
 
-    # Group graded courses by semester, ordered by semester_id
-    by_sem: Dict[str, List] = defaultdict(list)
+    # Two views per semester, ordered by semester_id:
+    #  * by_sem_all  -> the HISTORICAL term GPA from every graded course that term
+    #    (matches the Semester-by-Semester list and a real transcript — a later
+    #    retake never rewrites a past term's GPA).
+    #  * by_sem_counted -> only grades that still count (latest-counts policy:
+    #    superseded retakes have counts_in_gpa=False) -> the authoritative CGPA.
+    by_sem_all: Dict[str, List] = defaultdict(list)
+    by_sem_counted: Dict[str, List] = defaultdict(list)
     sem_ids: Dict[str, int] = {}
     for r in transcript:
-        if r["grade_points"] is not None and r["counts_in_gpa"]:
-            by_sem[r["semester_code"]].append((r["grade_points"], r["credits"]))
+        if r["grade_points"] is not None:
+            by_sem_all[r["semester_code"]].append((r["grade_points"], r["credits"]))
+            if r["counts_in_gpa"]:
+                by_sem_counted[r["semester_code"]].append((r["grade_points"], r["credits"]))
         if r["semester_code"] not in sem_ids:
             sem_ids[r["semester_code"]] = r["semester_id"]
 
-    # Calculate sgpa + running cgpa from actual course grades so math is verifiable
     history = []
     running_pts = 0.0
     running_cr = 0
-    for sem_code in sorted(by_sem.keys(), key=lambda s: sem_ids.get(s, 0)):
-        rows = by_sem[sem_code]
-        tot_pts = sum(pts * cr for pts, cr in rows)
-        tot_cr = sum(cr for _, cr in rows)
-        running_pts += tot_pts
-        running_cr += tot_cr
+    for sem_code in sorted(by_sem_all.keys(), key=lambda s: sem_ids.get(s, 0)):
+        all_rows = by_sem_all[sem_code]
+        tot_pts = sum(pts * cr for pts, cr in all_rows)
+        tot_cr = sum(cr for _, cr in all_rows)
+        counted = by_sem_counted.get(sem_code, [])
+        running_pts += sum(pts * cr for pts, cr in counted)
+        running_cr += sum(cr for _, cr in counted)
         history.append({
             "semester": sem_code,
             "sgpa": round(tot_pts / tot_cr, 3) if tot_cr else 0.0,
@@ -305,6 +313,9 @@ async def get_transcript(
                 "grade": r["grade_letter"],
                 "grade_points": r["grade_points"],
                 "status": r["status"],
+                # False when a later retake superseded this attempt — counts toward
+                # the historical term GPA but NOT the cumulative (latest-counts).
+                "counts_in_gpa": r["counts_in_gpa"],
             }
         )
     out: Dict[str, Dict] = {}
