@@ -31,6 +31,34 @@ answers — it just skips the cited policy snippets (graceful degradation).
 
 ---
 
+## ⚡ Simplest path (recommended) — Render Blueprint + Vercel
+
+This repo ships a **`render.yaml`**, so the **backend + database deploy together in one click**.
+
+1. **Backend + DB → Render** — render.com → **New → Blueprint** → pick this repo → **Apply**.
+   It creates the FastAPI service *and* a Postgres DB and links them automatically. Then open
+   the **aiu-backend** service → **Environment** and paste 3 secrets: `GROQ_API_KEY`,
+   `HF_API_TOKEN` (free from huggingface.co/settings/tokens), `STRIPE_SECRET_KEY`. When it's
+   live, open `<your-url>/` → it should show `{"status":"ok"}`.
+2. **Load your data once** — from your machine, using Render's **External Database URL**
+   (Render → the DB → "External Database URL"):
+   ```bash
+   docker exec aiu-postgres pg_dump -U aiu -d aiu -Fc -f /tmp/aiu.dump
+   docker exec aiu-postgres pg_restore --no-owner --no-acl -d "<RENDER_EXTERNAL_DB_URL>" /tmp/aiu.dump
+   ```
+   (If it complains about the `vector` type, run `CREATE EXTENSION IF NOT EXISTS vector;` on the
+   DB first, then re-run the restore.)
+3. **Frontend → Vercel** — vercel.com → **Add New → Project** → import this repo → add env var
+   `NEXT_PUBLIC_API_URL` = your Render backend URL → **Deploy**. *(Optional: repeat with Root
+   Directory `admin-ui` for the admin portal.)*
+4. **Connect them** — back in Render → aiu-backend → Environment, set `CORS_ORIGINS` and
+   `FRONTEND_BASE_URL` to your Vercel URL → it redeploys.
+
+Done — free, two dashboards, ~20 min. No URL editing needed (the app auto-converts the DB URL).
+The detailed per-step reference + the Neon/Railway alternative are below.
+
+---
+
 ## 0. Accounts you'll need (all free)
 - **GitHub** (the repo is already here) · **Vercel** · **Neon** · **Railway** *or* **Render**
 - **HuggingFace** → a free read token: huggingface.co/settings/tokens

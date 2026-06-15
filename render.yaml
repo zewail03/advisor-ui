@@ -1,0 +1,36 @@
+# Render Blueprint — one click provisions the backend + a Postgres database and
+# links them automatically. In Render: New → Blueprint → pick this repo → Apply.
+# Then fill the 3 secret values (marked sync:false) in the dashboard, and add
+# FRONTEND_BASE_URL / CORS_ORIGINS once your Vercel URLs exist.
+services:
+  - type: web
+    name: aiu-backend
+    runtime: docker
+    rootDir: backend          # builds backend/Dockerfile (slim, no PyTorch)
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true   # Render generates a secure random value
+      - key: EMBEDDING_BACKEND
+        value: hf             # embeddings via HuggingFace API (no torch)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aiu-db
+          property: connectionString   # auto-injected; app coerces it to asyncpg
+      - key: GROQ_API_KEY
+        sync: false           # ← paste in the Render dashboard
+      - key: HF_API_TOKEN
+        sync: false           # ← free token from huggingface.co/settings/tokens
+      - key: STRIPE_SECRET_KEY
+        sync: false           # ← your sk_test_ key (optional, for payments)
+      - key: FRONTEND_BASE_URL
+        sync: false           # ← set to your Vercel URL after step 2
+      - key: CORS_ORIGINS
+        sync: false           # ← your Vercel URL(s), comma-separated
+
+databases:
+  - name: aiu-db
+    plan: free
+    region: oregon
