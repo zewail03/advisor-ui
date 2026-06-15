@@ -94,6 +94,50 @@ export const getOverview = () => authedGet<Overview>("/admin/overview");
 export const getAtRisk = () =>
   authedGet<{ count: number; students: AtRiskStudent[] }>("/admin/students/at-risk?limit=25");
 
+// -------------------- ML early-warning risk model -------------------- //
+export type RiskModelInfo = {
+  model: string;
+  trained_at: string;
+  feature_names: string[];
+  train_min_main_semesters: number;
+  metrics: {
+    n_train: number;
+    n_at_risk: number;
+    base_rate: number;
+    holdout_auc: number;
+    holdout_accuracy: number;
+    holdout_precision: number;
+    holdout_recall: number;
+    cv_auc_mean: number;
+    cv_auc_std: number;
+    confusion_matrix: number[][];
+  };
+};
+
+export type RiskPrediction = {
+  student_id: number;
+  student_code: string;
+  full_name: string;
+  cgpa: number | null;
+  status: string;
+  level: number;
+  risk_score: number;
+  risk_band: "low" | "moderate" | "high";
+  horizon: "forecast" | "assessment";
+  top_factor: string;
+};
+
+export type RiskPredictionsResponse = {
+  available: boolean;
+  model: RiskModelInfo | null;
+  scored: number;
+  band_counts: { high?: number; moderate?: number; low?: number };
+  students: RiskPrediction[];
+};
+
+export const getRiskPredictions = (limit = 25) =>
+  authedGet<RiskPredictionsResponse>(`/admin/students/risk-predictions?limit=${limit}`);
+
 // -------------------------- students CRUD -------------------------- //
 export type StudentRow = {
   student_id: number;

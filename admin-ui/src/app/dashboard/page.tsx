@@ -8,6 +8,7 @@ import {
   BookOpen,
   Wallet,
   Inbox,
+  BrainCircuit,
   type LucideIcon,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -16,9 +17,17 @@ import { CountUp, staggerContainer, fadeUpItem } from "@/components/Motion";
 import {
   getOverview,
   getAtRisk,
+  getRiskPredictions,
   type Overview,
   type AtRiskStudent,
+  type RiskPredictionsResponse,
 } from "@/lib/api";
+
+const BAND_CHIP: Record<"high" | "moderate" | "low", string> = {
+  high: "bg-red-50 text-red-600",
+  moderate: "bg-amber-50 text-amber-600",
+  low: "bg-emerald-50 text-emerald-600",
+};
 
 type StatCard = {
   label: string;
@@ -32,6 +41,7 @@ type StatCard = {
 export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [atRisk, setAtRisk] = useState<AtRiskStudent[]>([]);
+  const [risk, setRisk] = useState<RiskPredictionsResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,6 +53,10 @@ export default function DashboardPage() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
+    // ML risk queue loads independently (it scores every active student)
+    getRiskPredictions(25)
+      .then(setRisk)
+      .catch(() => setRisk(null));
   }, []);
 
   const cards: StatCard[] = overview
@@ -68,6 +82,12 @@ export default function DashboardPage() {
           ),
           icon: Inbox,
           color: "bg-zinc-100 text-zinc-600",
+        },
+        {
+          label: "Predicted High-Risk (ML)",
+          value: risk?.band_counts?.high ?? 0,
+          icon: BrainCircuit,
+          color: "bg-fuchsia-50 text-fuchsia-600",
         },
       ]
     : [];
@@ -161,6 +181,75 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </motion.div>
+
+          {risk?.available && risk.model && (
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              className="mt-8 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
+            >
+              <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 px-6 py-4">
+                <BrainCircuit size={18} className="text-fuchsia-500" />
+                <h2 className="font-semibold text-zinc-900">Predicted academic risk — ML early-warning</h2>
+                <span className="ml-auto flex items-center gap-3 text-xs text-zinc-500">
+                  <span className="rounded-md bg-red-50 px-2 py-0.5 font-semibold text-red-600">
+                    {risk.band_counts.high ?? 0} high
+                  </span>
+                  <span className="rounded-md bg-amber-50 px-2 py-0.5 font-semibold text-amber-600">
+                    {risk.band_counts.moderate ?? 0} moderate
+                  </span>
+                  <span className="text-zinc-400">
+                    AUC {risk.model.metrics.cv_auc_mean.toFixed(2)} · {risk.model.metrics.n_train} trained
+                  </span>
+                </span>
+              </div>
+              <p className="px-6 pt-3 text-xs text-zinc-500">
+                Logistic-regression model scoring every active student from their first-year record. Surfaces
+                students whose current CGPA may still look fine but whose early signals predict trouble — sorted
+                by predicted risk, not current CGPA.
+              </p>
+              <table className="mt-2 w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-left text-xs uppercase tracking-wide text-zinc-400">
+                    <th className="px-6 py-3 font-medium">Code</th>
+                    <th className="px-6 py-3 font-medium">Name</th>
+                    <th className="px-6 py-3 font-medium">CGPA</th>
+                    <th className="px-6 py-3 font-medium">Risk</th>
+                    <th className="px-6 py-3 font-medium">Top driver</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {risk.students.map((s, i) => (
+                    <motion.tr
+                      key={s.student_id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.45 + Math.min(i * 0.03, 0.5), duration: 0.25 }}
+                      className="border-b border-zinc-50 transition-colors hover:bg-zinc-50"
+                    >
+                      <td className="px-6 py-3 font-mono text-zinc-600">{s.student_code}</td>
+                      <td className="px-6 py-3 font-medium text-zinc-800">
+                        {s.full_name}
+                        {s.horizon === "forecast" && (
+                          <span className="ml-2 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
+                            forecast
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-zinc-500">{s.cgpa?.toFixed(2) ?? "—"}</td>
+                      <td className="px-6 py-3">
+                        <span className={`rounded-md px-2 py-0.5 font-semibold ${BAND_CHIP[s.risk_band]}`}>
+                          {Math.round(s.risk_score * 100)}% {s.risk_band}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-zinc-500">{s.top_factor}</td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </motion.div>
+          )}
         </>
       )}
     </AdminShell>

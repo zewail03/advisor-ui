@@ -356,6 +356,35 @@ export async function getRecoveryPlan(token: string, signal?: AbortSignal): Prom
   return res.json();
 }
 
+export type RiskFactor = {
+  name: string;
+  label: string;
+  detail: string;
+  value: number;
+  weight: number;
+};
+
+export type RiskForecast = {
+  available: boolean;
+  student_name?: string;
+  risk_score?: number;
+  risk_band?: "low" | "moderate" | "high";
+  horizon?: "forecast" | "assessment";
+  maturity?: number;
+  features?: Record<string, number>;
+  factors?: RiskFactor[];
+  protective?: Array<{ name: string; label: string; value: number; weight: number }>;
+  recommended_actions?: string[];
+  narrative?: string | null;
+  model?: { trained_at?: string; auc?: number | null; n_train?: number | null };
+};
+
+export async function getRiskForecast(token: string, signal?: AbortSignal): Promise<RiskForecast> {
+  const res = await authed("/students/me/risk", token, { signal });
+  if (!res.ok) await throwApiError(res, "Failed to load risk forecast");
+  return res.json();
+}
+
 export type CourseRecommendation = {
   course_id: string;
   code: string;

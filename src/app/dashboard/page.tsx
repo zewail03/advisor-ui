@@ -11,6 +11,7 @@ import ErrorBanner from "@/components/ErrorBanner";
 import { DashboardSkeleton } from "@/components/LoadingSkeleton";
 import AppLayout from "@/components/layout/AppLayout";
 import RecoveryPanel from "@/components/dashboard/RecoveryPanel";
+import RiskPanel from "@/components/dashboard/RiskPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -73,6 +74,7 @@ export default function DashboardPage() {
           />
 
           {token && <RecoveryPanel token={token} isDark={isDark} />}
+          {token && <RiskPanel token={token} isDark={isDark} />}
 
           {loading && !summary ? (
             <div className="max-w-full md:max-w-[560px]">
