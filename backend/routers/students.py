@@ -596,3 +596,54 @@ async def degree_plan(
     if mode == "both":
         return await compare_degree_plans(student, db)
     return await build_degree_plan(student, db, mode=mode)
+
+
+async def _narrate_risk(name: str, r: Dict) -> Optional[str]:
+    """Let the LLM narrate the model's output (model computes, LLM narrates).
+    Graceful: returns None if Groq is unavailable."""
+    from ai.groq_client import FAST_MODEL, complete
+
+    factors = "; ".join(f"{f['label']} — {f['detail']}" for f in r["factors"]) or "no specific risk factors"
+    protective = ", ".join(p["label"] for p in r["protective"]) or "none noted"
+    actions = "; ".join(r["recommended_actions"]) or "maintain current study habits"
+    system = (
+        "You are a warm, supportive AIU academic advisor. In 2-3 short sentences, speak directly to the "
+        "student ('you') about an early-warning model's reading of their first-year record. Never be alarmist. "
+        "If risk is low, reassure and add one light tip. If moderate or high, be honest and give concrete, "
+        "doable next steps. Use ONLY the facts provided — do not invent grades or numbers."
+    )
+    user = (
+        f"Student: {name}\n"
+        f"Predicted risk band: {r['risk_band']} (score {r['risk_score']:.0%}); this is a {r['horizon']}.\n"
+        f"Risk factors: {factors}\n"
+        f"Protective factors: {protective}\n"
+        f"Suggested actions: {actions}"
+    )
+    msg = await complete(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=FAST_MODEL, temperature=0.4, max_tokens=220,
+    )
+    return msg.strip() or None
+
+
+@router.get("/me/risk")
+async def academic_risk(
+    narrate: bool = Query(True),
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Academic early-warning forecast from the trained ML model, with the
+    explainable factors behind the score and an LLM-narrated message."""
+    from services.risk_model import predict_risk
+
+    result = await predict_risk(student.student_id, db)
+    if result is None:
+        return {"available": False}
+    result["available"] = True
+    result["student_name"] = student.full_name
+    if narrate:
+        try:
+            result["narrative"] = await _narrate_risk(student.full_name, result)
+        except Exception:
+            result["narrative"] = None
+    return result

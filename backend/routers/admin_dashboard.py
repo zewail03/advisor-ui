@@ -15,6 +15,7 @@ from models.petitions import Petition
 from models.staff import Staff
 from models.student import Student
 from services.policy import get_policy
+from services.risk_model import model_info, predict_risk
 
 router = APIRouter()
 
@@ -102,4 +103,71 @@ async def at_risk_students(
             }
             for (sid, code, name, cgpa, st) in rows
         ],
+    }
+
+
+@router.get("/risk-model")
+async def risk_model_card(
+    staff: Staff = Depends(get_current_staff),
+):
+    """Metadata + held-out metrics for the trained early-warning model."""
+    info = model_info()
+    return {"available": info is not None, "model": info}
+
+
+@router.get("/students/risk-predictions")
+async def risk_predictions(
+    limit: int = 25,
+    staff: Staff = Depends(get_current_staff),
+    db: AsyncSession = Depends(get_db),
+):
+    """ML-ranked intervention queue: predicted academic risk for every student
+    still in the program (Active/Probation), highest first. Unlike the CGPA list
+    this surfaces students whose *current* CGPA may still look acceptable but
+    whose first-year signals predict trouble — i.e. it catches them earlier."""
+    info = model_info()
+    if info is None:
+        return {"available": False, "model": None, "students": [], "band_counts": {}}
+
+    rows = (
+        await db.execute(
+            select(
+                Student.student_id,
+                Student.student_code,
+                Student.full_name,
+                Student.cgpa,
+                Student.status,
+                Student.level,
+            ).where(Student.status.in_(["Active", "Probation"]))
+        )
+    ).all()
+
+    preds = []
+    band_counts = {"high": 0, "moderate": 0, "low": 0}
+    for sid, code, name, cgpa, status, level in rows:
+        r = await predict_risk(sid, db)
+        if not r:
+            continue
+        band_counts[r["risk_band"]] = band_counts.get(r["risk_band"], 0) + 1
+        top = r["factors"][0]["label"] if r["factors"] else "—"
+        preds.append({
+            "student_id": sid,
+            "student_code": code,
+            "full_name": name,
+            "cgpa": round(cgpa, 3) if cgpa is not None else None,
+            "status": status,
+            "level": level,
+            "risk_score": r["risk_score"],
+            "risk_band": r["risk_band"],
+            "horizon": r["horizon"],
+            "top_factor": top,
+        })
+
+    preds.sort(key=lambda d: -d["risk_score"])
+    return {
+        "available": True,
+        "model": info,
+        "scored": len(preds),
+        "band_counts": band_counts,
+        "students": preds[: min(limit, 100)],
     }
