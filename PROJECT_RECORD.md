@@ -228,7 +228,37 @@ Documented, reproducible fixes — each one is presentation material:
 
 ---
 
-## 10. Five-minute demo script
+## 10. Academic early-warning model (the predictive ML layer)
+
+The one **trained** model in the system — everything else is rules + LLM. It predicts, from a student's **first-year record only**, whether they will later hit a formal academic warning / probation / dismissal, early enough to intervene. It fits the project thesis as *"the model computes the risk, the LLM narrates the advice."*
+
+### 10.1 Why it is genuinely predictive (not circular)
+- **Label** = did the student ever reach warning / probation / dismissal? Under the Dr. Ashraf ladder this can only happen from the **3rd main semester** on.
+- **Features** = the **first two main semesters only**. Features and label never overlap in time, so the model forecasts a *later* outcome rather than restating the current CGPA.
+- **Train set** = senior cohorts that have completed ≥ 3 main semesters (outcome already known). **Prediction targets** = current first/second-years, whose outcome is still open (`horizon = "forecast"`). The model learns from four graduated-enough cohorts and applies it to today's freshmen.
+
+### 10.2 Features (4, curated for stable signs) — `services/risk_features.py`
+`first_year_gpa`, `gpa_trend` (sem 2 − sem 1), `failed_courses`, `low_grade_rate` (share of first-year grades below C). Candidates were dropped on evidence, not taste: withdrawals (none occur in year 1), the Math-0 flag (near-constant in the data), raw credit load (the registration cap makes a light load a *proxy* for an already-low CGPA), and a math-deficit term (too collinear to hold a stable sign). The four survivors all carry the intuitive sign — a weaker first year always raises predicted risk.
+
+### 10.3 Leakage fix — features are point-in-time
+Found during the data audit: the extractor originally keyed off `counts_in_gpa`, which a **year-2 retake flips to False** — silently erasing a year-1 failure from a first-year feature. This inflated 18 senior students' first-year GPA by up to **1.26 points** (e.g. 21100002: a real 1.12 shown as 2.375) and was one-directional — current freshmen can't have retaken yet — so it skewed training and *hid* at-risk seniors from the signal. Fixed: every feature is now computed **as the record stood at first-year end** — judged by each course's letter grade, deduped to the latest attempt *within* the first year, never using the retake-sensitive flag.
+
+### 10.4 Model + serving — `scripts/train_risk_model.py`, `services/risk_model.py`
+`StandardScaler` + `LogisticRegression` (scikit-learn), trained offline and saved as a small JSON artifact (`ai/artifacts/risk_model.json`). The running backend **re-implements the sigmoid in pure Python** and never imports scikit-learn, so the server stays light. Held-out **AUC 1.0**, 5-fold **CV AUC 0.982 ± 0.015**, recall 1.0. Honest limitation stated up front: only **13 at-risk positives in 165 trained students** (7.9 % base rate) — a working, leakage-free pipeline, not a production-validated model.
+
+### 10.5 Explainability + narration
+Each score decomposes into per-factor contributions (coefficient × standardized value — a linear SHAP), surfaced as risk-raising **factors** with plain-language detail, **protective** factors, and a concrete next step mapped to each active factor. The student endpoint adds an optional **LLM-narrated advisor note** built strictly from those factors (graceful if Groq is unavailable).
+
+### 10.6 Surfaces
+- **Student:** `GET /students/me/risk` → dashboard card `RiskPanel.tsx` (risk gauge, weighed factors, protective chips, advisor note, model-provenance footer). Complements the *reactive* RecoveryPanel with a *predictive* forecast.
+- **Admin:** `GET /admin/students/risk-predictions` (every active student scored and ranked by predicted risk — surfaces students whose current CGPA still looks fine) + `GET /admin/risk-model` (metrics card). The admin dashboard adds a "Predicted High-Risk (ML)" stat and an ML risk queue.
+
+### 10.7 Data-integrity auditor — `scripts/audit_dataset.py`
+Read-only, reusable; 30+ checks — duplicates, orphans/FKs, CGPA drift vs recomputed-from-grades, grade↔points coherence, `counts_in_gpa` correctness, the retake latest-counts invariant, prerequisite ordering, standing consistency. Whole dataset: **0 FAIL / 0 WARN**, with only by-design INFO (24 ungraded = the in-progress Summer 2026 term; LAN022/PSC101 are 0-credit pass/fail). Run it before every retrain.
+
+---
+
+## 11. Five-minute demo script
 
 1. Login `25100002 / changeme123` (Walid, CGPA 3.2, 30/113 CH).
 2. Ask the chat: *"I finished first year and I want a plan to graduate early"* → two table plans, Summer-2026 lead, June 14 deadline.
@@ -236,6 +266,7 @@ Documented, reproducible fixes — each one is presentation material:
 4. Ask: *"Make Fall 2027 lighter"* → engine-recomputed revision; summer stays legal; graduation unchanged.
 5. Switch to `25100045` (CGPA 1.83) → weak-area profile, **Focus Load** option, light degree plan around hard courses.
 6. Admin portal → Rules editor (change a policy live), Approvals queue (the racer's pending request), AI anomaly scan.
+7. **Early-warning model:** as a current first-year (`25100008`) the dashboard shows a **high-risk forecast (~75%)** with the factors behind it (failed courses, low first-year GPA) and an LLM advisor note — caught *before* any formal probation; Walid (`25100002`) shows **low / on-track**. Admin → dashboard ML risk queue ranks every active student by *predicted* risk, not just current CGPA.
 
 ---
 
